@@ -297,22 +297,29 @@ public class FileNode extends Node {
 
     //-- move
 
-    /** @return dest */
+    /**
+     * Uses copy/remove to move between file systems.
+     * @return dest
+     */
     @Override
-    public FileNode move(Node destNode) throws MoveException {
+    public Node move(Node destNode, boolean overwrite) throws MoveException {
     	FileNode dest;
 
         if (!(destNode instanceof FileNode)) {
-        	throw new MoveException(this, destNode, "cannot move to none-file-node");
+            return super.move(destNode, overwrite);
         }
         dest = (FileNode) destNode;
-      	try {
-      		dest.checkNotExists();
-      	} catch (IOException e) {
-      		throw new MoveException(this, dest, "dest exists", e);
-      	}
+        if (!overwrite) {
+      	    try {
+          		dest.checkNotExists();
+          	} catch (IOException e) {
+      	    	throw new MoveException(this, dest, "dest exists", e);
+      	    }
+        }
         try {
-            Files.move(path, dest.path);
+            Files.move(path, dest.path, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            return super.move(destNode);
 		} catch (IOException e) {
 			throw new MoveException(this, dest, "os command failed", e);
 		}

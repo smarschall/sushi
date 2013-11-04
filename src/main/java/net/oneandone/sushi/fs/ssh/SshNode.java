@@ -34,8 +34,10 @@ import net.oneandone.sushi.fs.MkdirException;
 import net.oneandone.sushi.fs.ModeException;
 import net.oneandone.sushi.fs.MoveException;
 import net.oneandone.sushi.fs.Node;
+import net.oneandone.sushi.fs.NodeAlreadyExistsException;
 import net.oneandone.sushi.fs.NodeException;
 import net.oneandone.sushi.fs.NodeNotFoundException;
+import net.oneandone.sushi.fs.ReadFromException;
 import net.oneandone.sushi.fs.ReadLinkException;
 import net.oneandone.sushi.fs.SetLastModifiedException;
 import net.oneandone.sushi.fs.WriteToException;
@@ -329,22 +331,25 @@ public class SshNode extends Node {
     }
 
     @Override
-    public Node move(Node destNode) throws MoveException {
+    public Node move(Node destNode, boolean override) throws MoveException {
         SshNode dest;
         ChannelSftp sftp;
 
         if (!(destNode instanceof SshNode)) {
-            throw new MoveException(this, destNode, "target has is different node type");
+            super.move(destNode, override);
         }
         dest = (SshNode) destNode;
         try {
+            if (!override) {
+                dest.checkNotExists();
+            }
             sftp = alloc();
             try {
                 sftp.rename(escape(slashPath), escape(dest.slashPath));
             } finally {
                 free(sftp);
             }
-        } catch (SftpException | JSchException e) {
+        } catch (SftpException | JSchException | IOException e) {
             throw new MoveException(this, dest, "ssh failure", e);
         }
         return dest;
@@ -646,6 +651,12 @@ public class SshNode extends Node {
     }
 
     @Override
+    public SshNode writeBytes(byte[] bytes, int ofs, int len, boolean append) throws IOException {
+        readFrom(new ByteArrayInputStream(bytes, ofs, len), append);
+        return this;
+    }
+
+    @Override
     public InputStream createInputStream() throws FileNotFoundException, CreateInputStreamException {
         final FileNode tmp;
 
@@ -682,11 +693,7 @@ public class SshNode extends Node {
             @Override
             public void close() throws IOException {
                 super.close();
-                try {
-                    readFrom(new ByteArrayInputStream(toByteArray()), append);
-                } catch (JSchException | SftpException e) {
-                    throw new IOException(e);
-                }
+                readFrom(new ByteArrayInputStream(toByteArray()), append);
             }
         };
     }
@@ -710,7 +717,7 @@ public class SshNode extends Node {
     }
 
     /**
-     * This is the core function to read an ssh node. Does not close out.
+     * This is the core function to read an ssh node. Does not close dest.
      *
      * @throws FileNotFoundException if this is not a file
      */
@@ -738,18 +745,27 @@ public class SshNode extends Node {
         }
     }
 
-    public void readFrom(InputStream src) throws JSchException, SftpException {
+    public void readFrom(InputStream src) throws ReadFromException {
         readFrom(src, false);
     }
 
-    public void readFrom(InputStream src, boolean append) throws JSchException, SftpException {
+    /**
+     * This is the core function to write an ssh node. Does not close src.
+     *
+     * @throws FileNotFoundException if this is not a file
+     */
+    public void readFrom(InputStream src, boolean append) throws ReadFromException {
         ChannelSftp sftp;
 
-        sftp = alloc();
         try {
-            sftp.put(src, escape(slashPath), append ? ChannelSftp.APPEND : ChannelSftp.OVERWRITE);
-        } finally {
-            free(sftp);
+            sftp = alloc();
+            try {
+                sftp.put(src, escape(slashPath), append ? ChannelSftp.APPEND : ChannelSftp.OVERWRITE);
+            } finally {
+                free(sftp);
+            }
+        } catch (SftpException | JSchException e) {
+            throw new ReadFromException(this, e);
         }
     }
 

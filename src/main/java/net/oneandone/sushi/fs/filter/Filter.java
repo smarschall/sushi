@@ -64,11 +64,11 @@ public class Filter {
     private int maxDepth;
 
     public Filter() {
-        this.includes = new ArrayList<Object[]>();
-        this.includesRepr = new ArrayList<String>();
-        this.excludes = new ArrayList<Object[]>();
-        this.excludesRepr = new ArrayList<String>();
-        this.predicates = new ArrayList<Predicate>();
+        this.includes = new ArrayList<>();
+        this.includesRepr = new ArrayList<>();
+        this.excludes = new ArrayList<>();
+        this.excludesRepr = new ArrayList<>();
+        this.predicates = new ArrayList<>();
         this.ignoreCase = false;
         this.followLinks = false;
         this.minDepth = 1;
@@ -76,11 +76,11 @@ public class Filter {
     }
 
     public Filter(Filter orig) {
-        this.includes = new ArrayList<Object[]>(orig.includes);
-        this.includesRepr = new ArrayList<String>(orig.includesRepr);
-        this.excludes = new ArrayList<Object[]>(orig.excludes);
-        this.excludesRepr = new ArrayList<String>(orig.excludesRepr);
-        this.predicates = new ArrayList<Predicate>(orig.predicates); // TODO: not a deep clone ...
+        this.includes = new ArrayList<>(orig.includes);
+        this.includesRepr = new ArrayList<>(orig.includesRepr);
+        this.excludes = new ArrayList<>(orig.excludes);
+        this.excludesRepr = new ArrayList<>(orig.excludesRepr);
+        this.predicates = new ArrayList<>(orig.predicates); // TODO: not a deep clone ...
         this.ignoreCase = orig.ignoreCase;
         this.followLinks = orig.followLinks;
         this.minDepth = orig.minDepth;
@@ -215,7 +215,7 @@ public class Filter {
     public List<Node> collect(Node root) throws IOException {
         List<Node> result;
 
-        result = new ArrayList<Node>();
+        result = new ArrayList<>();
         collect(root, result);
         return result;
     }
@@ -225,12 +225,53 @@ public class Filter {
     }
 
     /**
+     * Tests includes an excludes. CAUTION: does not support checks that need a node (like predicates). Ignores "followSymlinks"
+     */
+    public boolean matches(String path) {
+        List<String> segments;
+
+        segments = Filesystem.SEPARATOR.split(path);
+        if (segments.size() < minDepth || segments.size() > maxDepth) {
+            return false;
+        }
+        if (predicates.size() > 0) {
+            throw new UnsupportedOperationException("cannot match with predicates");
+        }
+        return matches(0, segments, new ArrayList<>(includes), new ArrayList<>(excludes));
+    }
+
+    private boolean matches(int currentSegment, List<String> segments, List<Object[]> includes, List<Object[]> excludes) {
+        List<Object[]> remainingIncludes;
+        List<Object[]> remainingExcludes;
+        String name;
+        boolean in;
+        boolean ex;
+
+        if (currentSegment >= segments.size()) {
+            return false;
+        }
+        name = segments.get(currentSegment);
+        remainingIncludes = new ArrayList<>();
+        remainingExcludes = new ArrayList<>();
+        in = doMatch(name, includes, remainingIncludes);
+        ex = doMatch(name, excludes, remainingExcludes);
+        if (in && !ex) {
+            return true;
+        }
+        if (remainingIncludes.size() > 0 && !excludesAll(remainingExcludes)) {
+            return matches(currentSegment + 1, segments, remainingIncludes, remainingExcludes);
+        } else {
+            return false;
+        }
+    }
+
+    /**
      * Main methods of this class.
      *
      * @throws IOException as thrown by the specified FileTask
      */
     public void invoke(Node root, Action result) throws IOException {
-        doInvoke(0, root, root.isLink(), new ArrayList<Object[]>(includes), new ArrayList<Object[]>(excludes), result);
+        doInvoke(0, root, root.isLink(), new ArrayList<>(includes), new ArrayList<>(excludes), result);
     }
 
     private void doInvoke(int currentDepth, Node parent, boolean parentIsLink, List<Object[]> includes, List<Object[]> excludes, Action result)
@@ -263,8 +304,8 @@ public class Filter {
             for (Node child : children) {
                 name = child.getName();
                 childIsLink = child.isLink();
-                remainingIncludes = new ArrayList<Object[]>();
-                remainingExcludes = new ArrayList<Object[]>();
+                remainingIncludes = new ArrayList<>();
+                remainingExcludes = new ArrayList<>();
                 in = doMatch(name, includes, remainingIncludes);
                 ex = doMatch(name, excludes, remainingExcludes);
                 if (in && !ex && currentDepth >= minDepth && matchPredicates(child, childIsLink)) {
@@ -278,7 +319,7 @@ public class Filter {
         }
     }
 
-    // avoids node.list() call with there is exactly 1 include with a literal head
+    // avoids node.list() call if there is exactly 1 include with a literal head
     private List<? extends Node> list(Node node, List<Object[]> includes) throws IOException {
     	Node child;
 
